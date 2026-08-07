@@ -80,7 +80,7 @@ func testLaw() policy.Law {
 // newEngine builds an engine with a deterministic clock and identifiers.
 func newEngine(t *testing.T, mode Mode, plant Plant, model agent.Agent, history []journal.Record) (*Engine, string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "journal.jsonl")
+	path := filepath.Join(t.TempDir(), "journal.db")
 	ledger, err := journal.Open(path)
 	if err != nil {
 		t.Fatalf("open journal: %v", err)

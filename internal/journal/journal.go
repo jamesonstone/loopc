@@ -1,87 +1,126 @@
 package journal
 
 import (
-	"bufio"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 // ErrClosed is returned when a journal is used after being closed.
 var ErrClosed = errors.New("journal is closed")
 
-// Journal is an append-only ledger backed by one file.
+// Journal is an append-only ledger backed by SQLite.
+//
+// Append-only is enforced by triggers in the schema rather than by convention,
+// so an UPDATE or DELETE aborts at the engine even if it comes from outside
+// this package.
 type Journal struct {
-	mu       sync.Mutex
-	file     *os.File
-	sequence int64
-	closed   bool
+	mu     sync.Mutex
+	db     *sql.DB
+	closed bool
 }
 
 // Open opens or creates a journal.
 //
-// The file is opened O_APPEND so the kernel places every write at the end
-// regardless of what this process believes the offset to be. It is created
-// 0600 because the ledger is private local data.
+// The pool is capped at a single connection. Per-connection pragmas therefore
+// stay in force for every statement, and writes serialise — which costs
+// nothing here, because one action runs at a time by construction.
 func Open(path string) (*Journal, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("create journal directory: %w", err)
 	}
-	last, err := lastSequence(path)
-	if err != nil {
-		return nil, err
-	}
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open journal: %w", err)
 	}
-	return &Journal{file: file, sequence: last}, nil
+	db.SetMaxOpenConns(1)
+	for _, pragma := range pragmas {
+		if _, err := db.Exec(pragma); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("apply %s: %w", pragma, err)
+		}
+	}
+	for _, statement := range schemaStatements {
+		if _, err := db.Exec(statement); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("apply schema: %w", err)
+		}
+	}
+	// The ledger is private local data.
+	if err := os.Chmod(path, 0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
+		db.Close()
+		return nil, fmt.Errorf("restrict journal permissions: %w", err)
+	}
+	return &Journal{db: db}, nil
 }
 
 // Append writes one record and returns it with its assigned sequence.
 //
-// The write is flushed to disk before returning. In-memory state may only
-// advance after the write that persists it commits, so a caller that has seen
-// Append return can rely on the record surviving a crash.
+// The sequence comes from AUTOINCREMENT, which never reuses a value, so a
+// recorded action can always be told apart from a later one. The insert has
+// committed by the time this returns.
 func (j *Journal) Append(record Record) (Record, error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.closed {
 		return Record{}, ErrClosed
 	}
-	j.sequence++
-	record.Sequence = j.sequence
 	if record.At.IsZero() {
 		record.At = time.Now().UTC()
 	}
-	encoded, err := json.Marshal(record)
+	record.Sequence = 0
+	payload, err := json.Marshal(record)
 	if err != nil {
-		j.sequence--
 		return Record{}, fmt.Errorf("encode record: %w", err)
 	}
-	if _, err := j.file.Write(append(encoded, '\n')); err != nil {
-		j.sequence--
+	result, err := j.db.Exec(
+		`INSERT INTO records (kind, at, cycle_id, generation, mode, policy_hash, payload)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		string(record.Kind), record.At.UTC().Format(time.RFC3339Nano), record.CycleID,
+		record.Generation, record.Mode, record.PolicyHash, string(payload))
+	if err != nil {
 		return Record{}, fmt.Errorf("write record: %w", err)
 	}
-	if err := j.file.Sync(); err != nil {
-		return Record{}, fmt.Errorf("sync journal: %w", err)
+	sequence, err := result.LastInsertId()
+	if err != nil {
+		return Record{}, fmt.Errorf("resolve record sequence: %w", err)
 	}
+	record.Sequence = sequence
 	return record, nil
 }
 
-// Sequence returns the highest sequence written.
-func (j *Journal) Sequence() int64 {
+// All returns the complete ledger in sequence order.
+func (j *Journal) All() ([]Record, error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return j.sequence
+	if j.closed {
+		return nil, ErrClosed
+	}
+	return queryRecords(j.db)
 }
 
-// Close releases the underlying file.
+// Sequence returns the highest sequence written.
+func (j *Journal) Sequence() (int64, error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.closed {
+		return 0, ErrClosed
+	}
+	var sequence sql.NullInt64
+	if err := j.db.QueryRow(`SELECT MAX(sequence) FROM records`).Scan(&sequence); err != nil {
+		return 0, fmt.Errorf("read sequence: %w", err)
+	}
+	return sequence.Int64, nil
+}
+
+// Close releases the database.
 func (j *Journal) Close() error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -89,61 +128,52 @@ func (j *Journal) Close() error {
 		return nil
 	}
 	j.closed = true
-	return j.file.Close()
+	return j.db.Close()
 }
 
-// lastSequence reads the existing ledger to resume numbering, so that
-// reopening never restarts sequences and never overwrites history.
-func lastSequence(path string) (int64, error) {
-	records, err := Read(path)
-	if err != nil {
-		return 0, err
-	}
-	var last int64
-	for _, record := range records {
-		if record.Sequence > last {
-			last = record.Sequence
-		}
-	}
-	return last, nil
-}
-
-// Read decodes the complete ledger. A missing file is an empty ledger, not an
-// error: a controller that has never run has nothing to recover.
+// Read decodes a ledger from disk without holding it open.
+//
+// A missing file is an empty ledger, not an error: a controller that has never
+// run has nothing to recover.
 func Read(path string) ([]Record, error) {
-	file, err := os.Open(path)
-	if errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
+	ledger, err := Open(path)
 	if err != nil {
-		return nil, fmt.Errorf("open journal: %w", err)
+		return nil, err
 	}
-	defer file.Close()
-	return decode(file)
+	defer ledger.Close()
+	return ledger.All()
 }
 
-// maxRecordBytes bounds one line so a corrupt or hostile ledger cannot exhaust
-// memory. Every buffer in the runtime is bounded by construction.
-const maxRecordBytes = 4 << 20
+// queryRecords loads and decodes every row.
+//
+// The stored payload is the authority for a record's contents; the indexed
+// columns exist only so the engine can find rows without decoding them. The
+// sequence is taken from its column because it is assigned at insert.
+func queryRecords(db *sql.DB) ([]Record, error) {
+	rows, err := db.Query(`SELECT sequence, payload FROM records ORDER BY sequence`)
+	if err != nil {
+		return nil, fmt.Errorf("read journal: %w", err)
+	}
+	defer rows.Close()
 
-func decode(reader io.Reader) ([]Record, error) {
-	scanner := bufio.NewScanner(reader)
-	scanner.Buffer(make([]byte, 0, 64<<10), maxRecordBytes)
 	records := make([]Record, 0)
-	line := 0
-	for scanner.Scan() {
-		line++
-		raw := scanner.Bytes()
-		if len(raw) == 0 {
-			continue
+	for rows.Next() {
+		var sequence int64
+		var payload string
+		if err := rows.Scan(&sequence, &payload); err != nil {
+			return nil, fmt.Errorf("scan journal row: %w", err)
 		}
 		var record Record
-		if err := json.Unmarshal(raw, &record); err != nil {
-			return nil, fmt.Errorf("decode journal line %d: %w", line, err)
+		if err := json.Unmarshal([]byte(payload), &record); err != nil {
+			return nil, fmt.Errorf("decode journal record %d: %w", sequence, err)
 		}
+		record.Sequence = sequence
 		records = append(records, record)
 	}
-	if err := scanner.Err(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read journal: %w", err)
 	}
 	return records, nil

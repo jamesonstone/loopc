@@ -15,7 +15,7 @@ import (
 // cannot start without a recorded audit observation for the identical policy.
 // It fails at construction, not at the moment of action.
 func TestReconcileRefusedWithoutBaseline(t *testing.T) {
-	ledger, err := journal.Open(t.TempDir() + "/journal.jsonl")
+	ledger, err := journal.Open(t.TempDir() + "/journal.db")
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestReconcileRefusedWithoutBaseline(t *testing.T) {
 // TestBaselineIsPolicyBound proves that changing the control law invalidates
 // an existing baseline, forcing a fresh audit observation.
 func TestBaselineIsPolicyBound(t *testing.T) {
-	ledger, _ := journal.Open(t.TempDir() + "/journal.jsonl")
+	ledger, _ := journal.Open(t.TempDir() + "/journal.db")
 	defer ledger.Close()
 
 	stale := []journal.Record{{Kind: journal.KindAuditBaseline, PolicyHash: "some-other-policy"}}

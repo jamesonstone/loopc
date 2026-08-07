@@ -262,21 +262,30 @@ The journal schema cannot be retrofitted onto cycles already run; the learner
 can be added at any time. Outcome triples are therefore recorded from the first
 cycle while the shipped policy stays fixed and hand-written.
 
-### The ledger is newline-delimited JSON rather than SQLite
+### The ledger is SQLite, with append-only enforced by triggers
 
-The accepted plan named SQLite, matching `ghostgc`. Building it showed a flat
-append-only file is the better fit and the plan was revised.
+The accepted plan named SQLite, matching `ghostgc`. An initial implementation
+used newline-delimited JSON opened `O_APPEND`, on the argument that append-only
+should be a property of the file descriptor rather than of code discipline.
+That was reverted: the plan stands, and the same guarantee is available in
+SQLite in a stronger form.
 
-Opening with `O_APPEND` makes append-only a property of the file descriptor:
-the kernel positions every write at the end, so the guarantee does not depend
-on the code being disciplined about seeks. The ledger is also the outer loop's
-training set, which wants to be flat and greppable. SQLite's advantages —
-indexed queries and concurrent writers — are not needed at rung 1 volumes,
-where one action runs at a time by construction.
+`BEFORE UPDATE` and `BEFORE DELETE` triggers `RAISE(ABORT)` on the records
+table. Append-only is therefore enforced by the database engine against *any*
+writer, including a direct `sqlite3` session — where the `O_APPEND` argument
+only held for writers going through this package. A test asserts both triggers
+through a connection that bypasses the package entirely.
 
-Adding a field to a record stays safe, so the schema remains extensible in the
-direction that matters. A database can be introduced later without changing the
-record shape if query cost ever justifies it.
+Supporting choices: `AUTOINCREMENT` never reuses a sequence, so a recorded
+action can always be distinguished from a later one. `synchronous=FULL` keeps
+the rule that in-memory state advances only after the persisting write commits.
+The pool is capped at one connection, which keeps per-connection pragmas in
+force and serialises writes — free, since one action runs at a time by
+construction.
+
+The record payload is stored as JSON with the queryable fields duplicated into
+indexed columns. Adding a field therefore stays safe, and migrations may only
+add: a recorded cycle cannot be recomputed from a fresh observation.
 
 ### `reply_no_change` is arena-mutating
 
