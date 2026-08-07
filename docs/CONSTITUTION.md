@@ -13,9 +13,11 @@
   an action class, but the class is a closed enum. An untyped action cannot be
   learned from, and a loop that cannot be learned from cannot tune its own
   policy.
-- Scalar error may remove authority, never grant it. Only typed conditions
-  authorise an action. Halting on a number is fail-closed; acting on a number is
-  a readiness score by another name.
+- Authority is permission to mutate inside the arena. Scalar error may only
+  narrow the admissible action set, never widen it: no number can admit an
+  arena-mutating action, and only typed conditions can. Narrowing toward the
+  non-arena classes is fail-closed; admitting an arena mutation from a number
+  would be a readiness score by another name.
 - Safety is the arena, not the actuator. The agent performs mutations, so the
   boundary is blast radius: a controller-owned worktree, a feature branch, no
   force-push, no merge, no deploy.
@@ -48,6 +50,12 @@
 ### Action
 
 - Action classes are a closed enum. Adding a class is a constitution change.
+- Every class is either arena-mutating or non-arena. `request_human` and `defer`
+  are the non-arena classes: they notify or wait, and never write to a worktree,
+  a branch, or GitHub. Every other class mutates inside the arena and requires
+  authority admitted by typed conditions.
+- Because the non-arena classes mutate nothing, they require no authority and
+  are always available. Selecting one is never an exercise of authority.
 - Every action is preceded by a durable declaration recording class, target,
   intent, and predicted cleared conditions. Executing without a committed
   declaration is prohibited.
@@ -58,10 +66,16 @@
 
 ### Brakes
 
-- The integral brake escalates when a condition persists beyond its configured
-  cycle budget. Terminal escalation is `request_human`, never repetition.
-- The derivative brake halts when the last K actions produced no error
-  reduction. Halting requires no authority and is always available.
+- Both brakes only narrow the admissible action set. Neither admits a class, and
+  no threshold in either causes an arena mutation that typed conditions had not
+  already admitted.
+- The integral brake withdraws the arena-mutating classes for a condition that
+  persists beyond its configured cycle budget, leaving `request_human` as the
+  terminal outcome rather than repetition.
+- The derivative brake narrows the admissible set to the non-arena classes when
+  the last K actions produced no error reduction. Because halting and escalating
+  mutate nothing, they need no authority and remain available even when the
+  brake has withdrawn every arena-mutating class.
 
 ### Arena
 
@@ -152,7 +166,15 @@
 - **Condition** — one typed, evidence-carrying observation about the plant.
 - **Error term** — the typed vector of unsatisfied conditions. Its scalar
   reduction is `e(t)`.
-- **Action class** — one member of the closed actuator enum.
+- **Authority** — permission to mutate inside the arena. Only typed conditions
+  admit it; the non-arena classes require none.
+- **Action class** — one member of the closed actuator enum, either
+  arena-mutating or non-arena.
+- **Non-arena class** — `request_human` or `defer`. Notifies or waits, and never
+  writes to a worktree, a branch, or GitHub.
+- **Admissible action set** — the classes available on the current cycle. Typed
+  conditions admit arena-mutating classes; the scalar and the brakes may only
+  withdraw them.
 - **Declaration** — the durable record an agent writes before acting.
 - **Arena** — the bounded, reversible region in which the agent may mutate.
 - **Rung** — one step on the complexity ladder, introducing exactly one new

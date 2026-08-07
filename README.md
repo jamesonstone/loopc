@@ -17,15 +17,20 @@ observe -> type conditions -> compute e(t) -> select action class -> act in aren
 ```
 
 Conditions are typed records, never prose, and the control law reads only their
-types. The scalar error `e(t)` drives trend, plots, and brakes; it may remove
-authority but never grant it. Before acting, the agent commits a declaration
+types. Authority means permission to mutate inside the arena, and only typed
+conditions admit it. The scalar error `e(t)` drives trend, plots, and brakes,
+but may only narrow the admissible action set — never widen it. Before acting,
+the agent commits a declaration
 naming a closed-enum action class, its target, its intent, and the conditions it
 expects to clear — so that every cycle yields a learnable outcome.
 
-Two brakes bound the loop. The integral brake escalates a condition that
-persists past its cycle budget, terminating in `request_human` rather than
-repetition. The derivative brake halts when recent actions have stopped reducing
-error.
+Two brakes bound the loop, and both only narrow. The integral brake withdraws
+the arena-mutating classes for a condition that persists past its cycle budget,
+leaving `request_human` as the terminal outcome rather than repetition. The
+derivative brake narrows to the non-arena classes when recent actions have
+stopped reducing error. `request_human` and `defer` never write to a worktree,
+a branch, or GitHub, so escalating and halting need no authority and stay
+available.
 
 ## Rung 1
 

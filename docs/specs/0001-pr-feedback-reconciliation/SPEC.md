@@ -94,7 +94,8 @@ poll interval, so no time series is retained.
 Both projects reject a "numeric readiness score" in their constitutions, and
 they are right to. The resolution adopted here is that the control law reads
 only the typed condition vector, while the scalar `e(t)` exists for trend,
-plots, and brakes — and may only ever *remove* authority.
+plots, and brakes — and may only ever *narrow* the admissible action set, never
+widen it.
 
 Neither codebase is a dependency. Both are references whose discipline is ported
 deliberately and whose limitations are recorded as lessons.
@@ -107,17 +108,22 @@ deliberately and whose limitations are recorded as lessons.
   `FirstObservedAt`, `LastTransitionAt`, and `ObservedGeneration`. The control
   law never reads `Message`.
 - The error term is a typed vector over condition types with count and age of
-  the oldest instance. Its scalar reduction never authorises an action.
+  the oldest instance. Its scalar reduction may only narrow the admissible
+  action set and never admits an arena-mutating class.
 - The agent commits a typed declaration — class, target, intent, predicted
   cleared conditions — before executing anything.
 - Action classes are the closed enum `patch_code`, `patch_test`, `patch_docs`,
   `reply_no_change`, `request_human`, `defer`.
 - The journal is append-only and records the outcome triple for every cycle:
   conditions before, action class, error delta, cycles to clear, prediction hit.
-- The integral brake escalates a condition that persists past its cycle budget;
-  the terminal escalation is `request_human`.
-- The derivative brake halts the loop when the last K actions produced no error
-  reduction.
+- `request_human` and `defer` are non-arena classes that notify or wait and
+  never write to a worktree, a branch, or GitHub. They require no authority and
+  are always available.
+- The integral brake withdraws the arena-mutating classes for a condition that
+  persists past its cycle budget, leaving `request_human` as the terminal
+  outcome.
+- The derivative brake narrows the admissible set to the non-arena classes when
+  the last K actions produced no error reduction.
 - The arena confines every mutation to a controller-owned worktree on a feature
   branch, with no force-push, no merge, and no deploy.
 - The controller refuses to act on a pull request whose diff touches the arena
@@ -207,11 +213,27 @@ English. Kubernetes-style conditions are adopted instead, giving persistence and
 transition times for free. Rejected: keeping `[]string` blockers with a stricter
 matcher, which leaves the message as the interface.
 
-### The scalar may remove authority but never grant it
+### The scalar may narrow the admissible action set but never widen it
 
 This reconciles emitting `e(t)` with both predecessor constitutions' rejection
-of a readiness score. Trend, plots, and the derivative brake read the scalar;
-only typed conditions authorise. Halting on a number is fail-closed.
+of a readiness score. Authority means one specific thing — permission to mutate
+inside the arena — and only typed conditions admit it. Trend, plots, and both
+brakes read the scalar, but they can only withdraw arena-mutating classes from
+the admissible set.
+
+`request_human` and `defer` are non-arena classes: they notify or wait and never
+write to a worktree, a branch, or GitHub. Escalating and halting therefore
+exercise no authority and stay available even after the brakes have withdrawn
+every arena-mutating class.
+
+Superseded wording: this decision originally read "the scalar may remove
+authority but never grant it," and the constitution said only typed conditions
+authorise *an action*. That was ambiguous rather than wrong. Because
+`request_human` is a member of the closed action-class enum, the text read as
+though a scalar could select an action, which contradicted the brakes that
+terminate in `request_human` and halt the loop. The asymmetry itself is
+unchanged; naming the arena as its subject is what removes the contradiction.
+The action-class enum is unchanged, and no numeric threshold admits an action.
 
 ### The agent acts, so safety moves to the arena
 
