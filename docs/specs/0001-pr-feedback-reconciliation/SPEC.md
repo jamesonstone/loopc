@@ -262,11 +262,66 @@ The journal schema cannot be retrofitted onto cycles already run; the learner
 can be added at any time. Outcome triples are therefore recorded from the first
 cycle while the shipped policy stays fixed and hand-written.
 
+### The ledger is newline-delimited JSON rather than SQLite
+
+The accepted plan named SQLite, matching `ghostgc`. Building it showed a flat
+append-only file is the better fit and the plan was revised.
+
+Opening with `O_APPEND` makes append-only a property of the file descriptor:
+the kernel positions every write at the end, so the guarantee does not depend
+on the code being disciplined about seeks. The ledger is also the outer loop's
+training set, which wants to be flat and greppable. SQLite's advantages —
+indexed queries and concurrent writers — are not needed at rung 1 volumes,
+where one action runs at a time by construction.
+
+Adding a field to a record stays safe, so the schema remains extensible in the
+direction that matters. A database can be introduced later without changing the
+record shape if query cost ever justifies it.
+
+### `reply_no_change` is arena-mutating
+
+It writes no code, but it does write to GitHub, which is inside the blast
+radius the arena exists to bound. Classing it as non-arena would have let a
+brake-withdrawn controller keep posting comments. Only `request_human` and
+`defer` mutate nothing.
+
 ## DISCOVERIES
 
-None yet. This pull request delivers repository memory only and ran no
-implementation. Consequential discoveries are recorded here as each subsequent
-pull request lands.
+### The asymmetry can be enforced by the type system rather than by discipline
+
+Building the rung 0 runtime showed that both halves of the constitution's
+central rule can be made structural instead of conventional.
+
+`condition.Vector` — the only view the control law is given — carries no
+message field, so a rule cannot match on prose even by mistake. A test asserts
+by reflection that no message-like field is ever added.
+
+`policy.Admissible` starts containing only the non-arena classes, and the method
+that adds an arena-mutating class is unexported. `Law.Admit` is the only caller
+and it takes no scalar, no series, and no brake. Both brakes receive the set and
+can call only `Withdraw`. There is therefore no exported path from a number to
+an admitted class.
+
+Withdrawal was also made permanent for the cycle. Without that, rule evaluation
+order could re-admit a class a brake had already taken away.
+
+### The brakes had to be made restart-safe
+
+The brakes read the `e(t)` series, which was initially held only in memory. A
+restarted controller would have resumed with an empty series, forgotten it had
+been stalling or looping, and started acting again on a plant it had already
+failed to fix — precisely the runaway the derivative brake exists to prevent.
+
+Samples are now journalled with each finished cycle and replayed when an engine
+is constructed. Two tests cover it: one proving the history survives, one
+proving the replayed history still withdraws authority.
+
+### Remeasurement belongs inside the acting cycle
+
+Recording the outcome triple on the following cycle would lose the outcome of
+the last action ever taken, and any controller that stopped after acting would
+leave its most interesting record unwritten. The cycle that acts now observes
+again before closing, so every triple is complete and attributable.
 
 ## VALIDATION
 
