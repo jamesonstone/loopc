@@ -262,11 +262,75 @@ The journal schema cannot be retrofitted onto cycles already run; the learner
 can be added at any time. Outcome triples are therefore recorded from the first
 cycle while the shipped policy stays fixed and hand-written.
 
+### The ledger is SQLite, with append-only enforced by triggers
+
+The accepted plan named SQLite, matching `ghostgc`. An initial implementation
+used newline-delimited JSON opened `O_APPEND`, on the argument that append-only
+should be a property of the file descriptor rather than of code discipline.
+That was reverted: the plan stands, and the same guarantee is available in
+SQLite in a stronger form.
+
+`BEFORE UPDATE` and `BEFORE DELETE` triggers `RAISE(ABORT)` on the records
+table. Append-only is therefore enforced by the database engine against *any*
+writer, including a direct `sqlite3` session — where the `O_APPEND` argument
+only held for writers going through this package. A test asserts both triggers
+through a connection that bypasses the package entirely.
+
+Supporting choices: `AUTOINCREMENT` never reuses a sequence, so a recorded
+action can always be distinguished from a later one. `synchronous=FULL` keeps
+the rule that in-memory state advances only after the persisting write commits.
+The pool is capped at one connection, which keeps per-connection pragmas in
+force and serialises writes — free, since one action runs at a time by
+construction.
+
+The record payload is stored as JSON with the queryable fields duplicated into
+indexed columns. Adding a field therefore stays safe, and migrations may only
+add: a recorded cycle cannot be recomputed from a fresh observation.
+
+### `reply_no_change` is arena-mutating
+
+It writes no code, but it does write to GitHub, which is inside the blast
+radius the arena exists to bound. Classing it as non-arena would have let a
+brake-withdrawn controller keep posting comments. Only `request_human` and
+`defer` mutate nothing.
+
 ## DISCOVERIES
 
-None yet. This pull request delivers repository memory only and ran no
-implementation. Consequential discoveries are recorded here as each subsequent
-pull request lands.
+### The asymmetry can be enforced by the type system rather than by discipline
+
+Building the rung 0 runtime showed that both halves of the constitution's
+central rule can be made structural instead of conventional.
+
+`condition.Vector` — the only view the control law is given — carries no
+message field, so a rule cannot match on prose even by mistake. A test asserts
+by reflection that no message-like field is ever added.
+
+`policy.Admissible` starts containing only the non-arena classes, and the method
+that adds an arena-mutating class is unexported. `Law.Admit` is the only caller
+and it takes no scalar, no series, and no brake. Both brakes receive the set and
+can call only `Withdraw`. There is therefore no exported path from a number to
+an admitted class.
+
+Withdrawal was also made permanent for the cycle. Without that, rule evaluation
+order could re-admit a class a brake had already taken away.
+
+### The brakes had to be made restart-safe
+
+The brakes read the `e(t)` series, which was initially held only in memory. A
+restarted controller would have resumed with an empty series, forgotten it had
+been stalling or looping, and started acting again on a plant it had already
+failed to fix — precisely the runaway the derivative brake exists to prevent.
+
+Samples are now journalled with each finished cycle and replayed when an engine
+is constructed. Two tests cover it: one proving the history survives, one
+proving the replayed history still withdraws authority.
+
+### Remeasurement belongs inside the acting cycle
+
+Recording the outcome triple on the following cycle would lose the outcome of
+the last action ever taken, and any controller that stopped after acting would
+leave its most interesting record unwritten. The cycle that acts now observes
+again before closing, so every triple is complete and attributable.
 
 ## VALIDATION
 
