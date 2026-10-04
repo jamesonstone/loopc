@@ -325,6 +325,33 @@ Samples are now journalled with each finished cycle and replayed when an engine
 is constructed. Two tests cover it: one proving the history survives, one
 proving the replayed history still withdraws authority.
 
+### The limit cycle is real, and damping it is a one-line configuration
+
+The accepted plan named the agent-versus-reviewer limit cycle as the expected
+first failure of rung 1. The stability harness reproduces it deliberately: a
+plant where clearing `a` opens `b` and clearing `b` opens `a`.
+
+An unbraked controller runs that plant until its cycle budget is exhausted with
+`e(t)` pinned at 1 — it never converges and never notices. With
+`OscillationThreshold: 2` and nothing else changed, the same controller on the
+same plant escalates well inside the budget. The two runs are asserted as a
+controlled pair, so the damping proof cannot pass vacuously: if the undamped
+loop ever stopped cycling, that test fails and the comparison is void.
+
+The prediction held, and the fix required no new mechanism.
+
+### Stability criteria are asserted, not observed
+
+Settling time, overshoot, recovery cycles, and action counts are exact
+assertions rather than smoke checks. Five conditions settle in exactly five
+cycles with zero overshoot and `e(t)` = [5 4 3 2 1]; twenty conditions under
+one-action-per-cycle saturation settle in exactly twenty with zero overshoot;
+a disturbance injected mid-convergence is absorbed in exactly three.
+
+A controller that eventually converges after an unbounded number of cycles has
+not demonstrated control, so every run carries a cycle budget. Exceeding it is
+a reported failure rather than a hang.
+
 ### Remeasurement belongs inside the acting cycle
 
 Recording the outcome triple on the following cycle would lose the outcome of
@@ -344,6 +371,26 @@ Repository-memory delivery for this pull request:
 
 Implementation validation is defined by AC-001 through AC-006 and is recorded as
 each subsequent pull request lands.
+
+**AC-001 is satisfied.** The stability suite passes against the deterministic
+fake plant in `internal/stability`, covering all six criteria:
+
+| Criterion | Result |
+|---|---|
+| Settling | 5 conditions in exactly 5 cycles, zero overshoot |
+| Oscillation | limit cycle reproduced, then damped into escalation |
+| Steady-state error | unfixable feedback terminates in `request_human` |
+| Disturbance rejection | mid-convergence injection absorbed in 3 cycles |
+| Windup | 20 conditions under one-action-per-cycle settle in exactly 20 |
+| Derivative stop | halts within about the configured window, then escalates |
+
+Two further tests guard the boundaries the criteria depend on: the integral
+brake escalating on persistence, and the non-arena classes surviving with every
+brake armed simultaneously.
+
+Whole-suite verification: `go test -race ./...` across nine packages, `go vet`
+and `gofmt` clean, `make check` coherent, and no handwritten source or test file
+above 300 physical lines.
 
 ## OUTCOME
 

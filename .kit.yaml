@@ -99,6 +99,15 @@ registry:
           installed_hash: sha256:183ebc6ef9b2cff3d4b4e89a2fbfaca4cf79280f981c00d25b32e5b9bbed0975
           state: managed
         - kind: ruleset
+          slug: infrastructure-change-approval
+          path: docs/references/rules/infrastructure-change-approval.md
+          source_repo: jamesonstone/kit
+          source_branch: main
+          source_commit: f5b0e33bb7960bb678cf11b34eb8104a3ffdaf90
+          source_path: docs/references/rules/infrastructure-change-approval.md
+          installed_hash: sha256:876b5f569dbec518a4b9b0475af3b0e84be854e4de528dee0989986f0d4a84ce
+          state: managed
+        - kind: ruleset
           slug: kit-capabilities-usage
           path: docs/references/rules/kit-capabilities-usage.md
           source_repo: jamesonstone/kit
@@ -130,9 +139,9 @@ registry:
           path: docs/references/rules/safety-guardrails.md
           source_repo: jamesonstone/kit
           source_branch: main
-          source_commit: b8de57722dd92e8f9658ef4ef284ac8c79d9d674
+          source_commit: f5b0e33bb7960bb678cf11b34eb8104a3ffdaf90
           source_path: docs/references/rules/safety-guardrails.md
-          installed_hash: sha256:1fb174fe7f7c9eec4350050ac9aa08105b778814338b88babf73c02d1d621a11
+          installed_hash: sha256:13f1fcfa492d4797fc1eb5d99d1a3e2946ecbd5acd5662f60261b59ed732153b
           state: managed
         - kind: ruleset
           slug: source-file-size
